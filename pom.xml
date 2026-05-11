@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.backend.CineFlow</groupId>
 	<artifactId>CineFlow</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0</version>
 	<name/>
 	<description/>
 	<url/>
@@ -54,6 +54,12 @@
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<version>8.0.33</version>
 		</dependency>
 
 		<dependency>
