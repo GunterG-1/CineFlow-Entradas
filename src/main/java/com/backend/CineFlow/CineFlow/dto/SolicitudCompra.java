@@ -3,32 +3,50 @@ package com.backend.CineFlow.CineFlow.dto;
 import java.util.List;
 
 public class SolicitudCompra {
+    private Long idFuncion;
     private String numeroPelicula;
+    private Long idUsuario;
     private List<String> asientosSeleccionados;
     private String emailComprador;
     private String codigoDescuento;
     private String numeroTarjeta;
     
-    // Constructor
     public SolicitudCompra() {
     }
     
-    public SolicitudCompra(String numeroPelicula, List<String> asientosSeleccionados, 
+    public SolicitudCompra(Long idFuncion, String numeroPelicula, Long idUsuario, List<String> asientosSeleccionados, 
                           String emailComprador, String codigoDescuento, String numeroTarjeta) {
+        this.idFuncion = idFuncion;
         this.numeroPelicula = numeroPelicula;
+        this.idUsuario = idUsuario;
         this.asientosSeleccionados = asientosSeleccionados;
         this.emailComprador = emailComprador;
         this.codigoDescuento = codigoDescuento;
         this.numeroTarjeta = numeroTarjeta;
     }
+
+    public Long getIdFuncion() {
+        return idFuncion;
+    }
+
+    public void setIdFuncion(Long idFuncion) {
+        this.idFuncion = idFuncion;
+    }
     
-    // Getters y Setters
     public String getNumeroPelicula() {
         return numeroPelicula;
     }
     
     public void setNumeroPelicula(String numeroPelicula) {
         this.numeroPelicula = numeroPelicula;
+    }
+
+    public Long getIdUsuario() {
+        return idUsuario;
+    }
+
+    public void setIdUsuario(Long idUsuario) {
+        this.idUsuario = idUsuario;
     }
     
     public List<String> getAsientosSeleccionados() {

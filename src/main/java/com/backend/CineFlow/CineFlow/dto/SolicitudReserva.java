@@ -3,19 +3,27 @@ package com.backend.CineFlow.CineFlow.dto;
 import java.util.List;
 
 public class SolicitudReserva {
+    private Long idFuncion;
     private String numeroPelicula;
     private List<String> asientosSeleccionados;
     
-    // Constructor
     public SolicitudReserva() {
     }
     
-    public SolicitudReserva(String numeroPelicula, List<String> asientosSeleccionados) {
+    public SolicitudReserva(Long idFuncion, String numeroPelicula, List<String> asientosSeleccionados) {
+        this.idFuncion = idFuncion;
         this.numeroPelicula = numeroPelicula;
         this.asientosSeleccionados = asientosSeleccionados;
     }
+
+    public Long getIdFuncion() {
+        return idFuncion;
+    }
+
+    public void setIdFuncion(Long idFuncion) {
+        this.idFuncion = idFuncion;
+    }
     
-    // Getters y Setters
     public String getNumeroPelicula() {
         return numeroPelicula;
     }

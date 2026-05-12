@@ -43,7 +43,6 @@ public class Ticket {
     @Column
     private Double descuentoAplicado;
     
-    // Constructor
     public Ticket() {
         this.fechaCreacion = LocalDateTime.now();
         this.estado = EstadoTicket.DISPONIBLE;

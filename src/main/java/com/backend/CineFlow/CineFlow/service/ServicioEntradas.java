@@ -5,25 +5,28 @@ import com.backend.CineFlow.CineFlow.dto.SolicitudReserva;
 import com.backend.CineFlow.CineFlow.model.EstadoTicket;
 import com.backend.CineFlow.CineFlow.model.Ticket;
 import com.backend.CineFlow.CineFlow.dto.SolicitudCompra;
+import com.backend.CineFlow.CineFlow.event.TicketPaidEvent;
+import com.backend.CineFlow.CineFlow.event.TicketReservedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ServicioEntradas {
     
     @Autowired
     private RepositorioTicket repositorioTicket;
+
+    @Autowired
+    private EventBusService eventBusService;
     
     private static final long TIEMPO_BLOQUEO_MINUTOS = 15;
     
-    /**
-     * PATCH /entradas/reservar
-     * Bloquea temporalmente los asientos seleccionados
-     */
     @Transactional
     public Map<String, Object> reservarAsientos(SolicitudReserva solicitud) {
         Map<String, Object> respuesta = new HashMap<>();
@@ -47,6 +50,11 @@ public class ServicioEntradas {
                     asientosNoDisponibles.add(numeroAsiento);
                 }
             }
+
+            if (!asientosReservados.isEmpty()) {
+                TicketReservedEvent event = construirEventoTicketReserved(solicitud, asientosReservados);
+                eventBusService.publicarTicketReserved(event);
+            }
             
             respuesta.put("exito", true);
             respuesta.put("asientosReservados", asientosReservados.size());
@@ -61,10 +69,6 @@ public class ServicioEntradas {
         return respuesta;
     }
     
-    /**
-     * POST /entradas/pagar
-     * Procesa la compra de entradas (transaccional)
-     */
     @Transactional
     public Map<String, Object> procesarPago(SolicitudCompra solicitud) {
         Map<String, Object> respuesta = new HashMap<>();
@@ -73,7 +77,6 @@ public class ServicioEntradas {
             List<Ticket> ticketsAComprar = new ArrayList<>();
             double precioTotal = 0;
             
-            // Validar que los asientos sigan disponibles o bloqueados
             for (String numeroAsiento : solicitud.getAsientosSeleccionados()) {
                 Optional<Ticket> ticket = repositorioTicket.buscarPorPeliculaYAsiento(
                     solicitud.getNumeroPelicula(),
@@ -93,16 +96,13 @@ public class ServicioEntradas {
                 precioTotal += t.getPrecio();
             }
             
-            // Aplicar descuento si existe
             double descuento = calcularDescuento(solicitud.getCodigoDescuento(), precioTotal);
             precioTotal -= descuento;
             
-            // Validar pago (integración con pasarela de pago)
             if (!validarPago(solicitud)) {
                 throw new RuntimeException("Error en la validación del pago");
             }
             
-            // Confirmar compra
             List<String> codigosQR = new ArrayList<>();
             for (Ticket ticket : ticketsAComprar) {
                 ticket.setEstado(EstadoTicket.VENDIDO);
@@ -114,6 +114,9 @@ public class ServicioEntradas {
                 codigosQR.add(qr);
                 repositorioTicket.save(ticket);
             }
+
+            TicketPaidEvent event = construirEventoTicketPaid(solicitud, ticketsAComprar, codigosQR);
+            eventBusService.publicarTicketPaid(event);
             
             respuesta.put("exito", true);
             respuesta.put("totalEntradas", ticketsAComprar.size());
@@ -121,6 +124,7 @@ public class ServicioEntradas {
             respuesta.put("codigosQR", codigosQR);
             
         } catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             respuesta.put("exito", false);
             respuesta.put("error", e.getMessage());
         }
@@ -128,10 +132,6 @@ public class ServicioEntradas {
         return respuesta;
     }
     
-    /**
-     * GET /entradas/{id}/codigoqr
-     * Obtiene el código QR de validación
-     */
     public Map<String, Object> obtenerCodigoQR(Long idTicket) {
         Map<String, Object> respuesta = new HashMap<>();
         
@@ -155,9 +155,6 @@ public class ServicioEntradas {
         return respuesta;
     }
     
-    /**
-     * Limpia los bloqueos caducados (ejecutarse periódicamente)
-     */
     @Transactional
     public void limpiarBloqueosCaducados() {
         LocalDateTime tiempoLimite = LocalDateTime.now().minusMinutes(TIEMPO_BLOQUEO_MINUTOS);
@@ -170,18 +167,57 @@ public class ServicioEntradas {
         }
     }
     
-    // Métodos auxiliares
     private double calcularDescuento(String codigoDescuento, double precioOriginal) {
-        // Implementar lógica de descuentos
         return 0;
     }
     
     private boolean validarPago(SolicitudCompra solicitud) {
-        // Integrar con pasarela de pago (Stripe, PayPal, etc.)
         return true;
     }
     
     private String generarCodigoQR(Ticket ticket) {
         return UUID.randomUUID().toString();
+    }
+
+    private TicketPaidEvent construirEventoTicketPaid(SolicitudCompra solicitud, List<Ticket> tickets, List<String> codigosQR) {
+        TicketPaidEvent event = new TicketPaidEvent();
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventType("Ticket.Paid");
+        event.setIdFuncion(resolverIdFuncion(solicitud.getIdFuncion(), solicitud.getNumeroPelicula()));
+        event.setNumeroPelicula(solicitud.getNumeroPelicula());
+        event.setIdUsuario(solicitud.getIdUsuario());
+        event.setEmailComprador(solicitud.getEmailComprador());
+        event.setAsientos(tickets.stream().map(Ticket::getNumeroAsiento).collect(Collectors.toList()));
+        event.setTicketIds(tickets.stream().map(Ticket::getId).collect(Collectors.toList()));
+        event.setCodigosQR(codigosQR);
+        event.setOccurredAt(LocalDateTime.now());
+        return event;
+    }
+
+    private TicketReservedEvent construirEventoTicketReserved(SolicitudReserva solicitud, List<Ticket> tickets) {
+        TicketReservedEvent event = new TicketReservedEvent();
+        event.setEventId(UUID.randomUUID().toString());
+        event.setEventType("Ticket.Reserved");
+        event.setIdFuncion(resolverIdFuncion(solicitud.getIdFuncion(), solicitud.getNumeroPelicula()));
+        event.setNumeroPelicula(solicitud.getNumeroPelicula());
+        event.setAsientos(tickets.stream().map(Ticket::getNumeroAsiento).collect(Collectors.toList()));
+        event.setOccurredAt(LocalDateTime.now());
+        return event;
+    }
+
+    private Long resolverIdFuncion(Long idFuncion, String numeroPelicula) {
+        if (idFuncion != null) {
+            return idFuncion;
+        }
+
+        if (numeroPelicula == null) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(numeroPelicula);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
