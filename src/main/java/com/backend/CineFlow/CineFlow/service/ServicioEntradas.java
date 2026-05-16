@@ -11,13 +11,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class ServicioEntradas {
+
+    private static final double PRECIO_BASE_ENTRADA = 5.99;
     
     @Autowired
     private RepositorioTicket repositorioTicket;
@@ -25,27 +29,27 @@ public class ServicioEntradas {
     @Autowired
     private EventBusService eventBusService;
     
-    private static final long TIEMPO_BLOQUEO_MINUTOS = 15;
-    
     @Transactional
     public Map<String, Object> reservarAsientos(SolicitudReserva solicitud) {
         Map<String, Object> respuesta = new HashMap<>();
         List<Ticket> asientosReservados = new ArrayList<>();
         List<String> asientosNoDisponibles = new ArrayList<>();
+        String claveFuncion = resolverClaveFuncion(solicitud.getClaveFuncion(), solicitud.getIdFuncion(), solicitud.getNumeroPelicula());
         
         try {
             for (String numeroAsiento : solicitud.getAsientosSeleccionados()) {
-                Optional<Ticket> ticket = repositorioTicket.buscarPorPeliculaYAsiento(
-                    solicitud.getNumeroPelicula(), 
-                    numeroAsiento
-                );
-                
-                if (ticket.isPresent() && ticket.get().getEstado() == EstadoTicket.DISPONIBLE) {
-                    Ticket t = ticket.get();
-                    t.setEstado(EstadoTicket.BLOQUEADO);
-                    t.setFechaBloqueo(LocalDateTime.now());
-                    repositorioTicket.save(t);
-                    asientosReservados.add(t);
+                Ticket ticket = obtenerOCrearTicket(
+                    claveFuncion,
+                    solicitud.getNumeroPelicula(),
+                    solicitud.getNombrePelicula(),
+                    solicitud.getHoraPelicula(),
+                    solicitud.getSala(),
+                    numeroAsiento);
+
+                if (ticket.getEstado() == EstadoTicket.DISPONIBLE) {
+                    ticket.setEstado(EstadoTicket.BLOQUEADO);
+                    repositorioTicket.save(ticket);
+                    asientosReservados.add(ticket);
                 } else {
                     asientosNoDisponibles.add(numeroAsiento);
                 }
@@ -53,13 +57,17 @@ public class ServicioEntradas {
 
             if (!asientosReservados.isEmpty()) {
                 TicketReservedEvent event = construirEventoTicketReserved(solicitud, asientosReservados);
-                eventBusService.publicarTicketReserved(event);
+                try {
+                    eventBusService.publicarTicketReserved(event);
+                } catch (Exception ex) {
+                    log.warn("No se pudo publicar el evento Ticket.Reserved. La reserva ya fue procesada: {}", ex.getMessage());
+                }
             }
             
             respuesta.put("exito", true);
             respuesta.put("asientosReservados", asientosReservados.size());
             respuesta.put("asientosNoDisponibles", asientosNoDisponibles);
-            respuesta.put("tiempoExpiracion", TIEMPO_BLOQUEO_MINUTOS);
+            respuesta.put("tiempoExpiracion", 0);
             
         } catch (Exception e) {
             respuesta.put("exito", false);
@@ -72,22 +80,20 @@ public class ServicioEntradas {
     @Transactional
     public Map<String, Object> procesarPago(SolicitudCompra solicitud) {
         Map<String, Object> respuesta = new HashMap<>();
+        String claveFuncion = resolverClaveFuncion(solicitud.getClaveFuncion(), solicitud.getIdFuncion(), solicitud.getNumeroPelicula());
         
         try {
             List<Ticket> ticketsAComprar = new ArrayList<>();
             double precioTotal = 0;
             
             for (String numeroAsiento : solicitud.getAsientosSeleccionados()) {
-                Optional<Ticket> ticket = repositorioTicket.buscarPorPeliculaYAsiento(
+                Ticket t = obtenerOCrearTicket(
+                    claveFuncion,
                     solicitud.getNumeroPelicula(),
-                    numeroAsiento
-                );
-                
-                if (ticket.isEmpty()) {
-                    throw new RuntimeException("Asiento " + numeroAsiento + " no encontrado");
-                }
-                
-                Ticket t = ticket.get();
+                    solicitud.getNombrePelicula(),
+                    solicitud.getHoraPelicula(),
+                    solicitud.getSala(),
+                    numeroAsiento);
                 if (t.getEstado() != EstadoTicket.BLOQUEADO && t.getEstado() != EstadoTicket.DISPONIBLE) {
                     throw new RuntimeException("Asiento " + numeroAsiento + " no está disponible");
                 }
@@ -100,7 +106,7 @@ public class ServicioEntradas {
             precioTotal -= descuento;
             
             if (!validarPago(solicitud)) {
-                throw new RuntimeException("Error en la validación del pago");
+                throw new RuntimeException("Debe proporcionar un método de pago válido");
             }
             
             List<String> codigosQR = new ArrayList<>();
@@ -116,7 +122,11 @@ public class ServicioEntradas {
             }
 
             TicketPaidEvent event = construirEventoTicketPaid(solicitud, ticketsAComprar, codigosQR);
-            eventBusService.publicarTicketPaid(event);
+            try {
+                eventBusService.publicarTicketPaid(event);
+            } catch (Exception ex) {
+                log.warn("No se pudo publicar el evento Ticket.Paid. La compra ya fue procesada: {}", ex.getMessage());
+            }
             
             respuesta.put("exito", true);
             respuesta.put("totalEntradas", ticketsAComprar.size());
@@ -129,6 +139,24 @@ public class ServicioEntradas {
             respuesta.put("error", e.getMessage());
         }
         
+        return respuesta;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> obtenerAsientosNoDisponibles(String claveFuncion, Long idFuncion, String numeroPelicula) {
+        String funcionKey = resolverClaveFuncion(claveFuncion, idFuncion, numeroPelicula);
+        List<EstadoTicket> estadosNoDisponibles = List.of(EstadoTicket.BLOQUEADO, EstadoTicket.RESERVADO, EstadoTicket.VENDIDO);
+        List<String> asientos = repositorioTicket.findByClaveFuncionAndEstadoIn(funcionKey, estadosNoDisponibles)
+            .stream()
+            .map(Ticket::getNumeroAsiento)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
+
+        Map<String, Object> respuesta = new HashMap<>();
+        respuesta.put("exito", true);
+        respuesta.put("claveFuncion", funcionKey);
+        respuesta.put("asientosNoDisponibles", asientos);
         return respuesta;
     }
     
@@ -155,28 +183,60 @@ public class ServicioEntradas {
         return respuesta;
     }
     
-    @Transactional
-    public void limpiarBloqueosCaducados() {
-        LocalDateTime tiempoLimite = LocalDateTime.now().minusMinutes(TIEMPO_BLOQUEO_MINUTOS);
-        List<Ticket> bloqueadosCaducados = repositorioTicket.obtenerBloqueosCaducados(tiempoLimite);
-        
-        for (Ticket ticket : bloqueadosCaducados) {
-            ticket.setEstado(EstadoTicket.DISPONIBLE);
-            ticket.setFechaBloqueo(null);
-            repositorioTicket.save(ticket);
-        }
-    }
-    
     private double calcularDescuento(String codigoDescuento, double precioOriginal) {
         return 0;
     }
     
     private boolean validarPago(SolicitudCompra solicitud) {
-        return true;
+        // Requerir que exista un método de pago en la solicitud o en el perfil del usuario
+        if (solicitud == null) return false;
+        if (solicitud.getMetodoPago() != null && !solicitud.getMetodoPago().isBlank()) return true;
+        // Si no viene en la solicitud, el cliente debería usar la cuenta del usuario; no disponible aquí -> rechazar
+        return false;
     }
     
     private String generarCodigoQR(Ticket ticket) {
         return UUID.randomUUID().toString();
+    }
+
+    private Ticket obtenerOCrearTicket(String claveFuncion,
+                                       String numeroPelicula,
+                                       String nombrePelicula,
+                                       String horaPelicula,
+                                       String sala,
+                                       String numeroAsiento) {
+        return repositorioTicket.buscarPorFuncionYAsiento(claveFuncion, numeroAsiento)
+            .orElseGet(() -> {
+                Ticket ticket = new Ticket();
+                ticket.setNombrePelicula(resolverNombrePelicula(numeroPelicula, nombrePelicula));
+                ticket.setHoraPelicula(resolverHoraPelicula(horaPelicula));
+                ticket.setSala(resolverSala(sala));
+                ticket.setNumeroPelicula(numeroPelicula);
+                ticket.setClaveFuncion(claveFuncion);
+                ticket.setNumeroAsiento(numeroAsiento);
+                ticket.setPrecio(PRECIO_BASE_ENTRADA);
+                ticket.setEstado(EstadoTicket.DISPONIBLE);
+                ticket.setEmailComprador(null);
+                ticket.setDescuentoAplicado(null);
+                ticket.setCodigoQR(null);
+                return repositorioTicket.save(ticket);
+            });
+    }
+
+    private String resolverClaveFuncion(String claveFuncion, Long idFuncion, String numeroPelicula) {
+        if (claveFuncion != null && !claveFuncion.isBlank()) {
+            return claveFuncion.trim();
+        }
+
+        if (idFuncion != null) {
+            return "FUNCION-" + idFuncion;
+        }
+
+        if (numeroPelicula != null && !numeroPelicula.isBlank()) {
+            return "PELICULA-" + numeroPelicula.trim();
+        }
+
+        throw new RuntimeException("No se pudo resolver la función de la compra");
     }
 
     private TicketPaidEvent construirEventoTicketPaid(SolicitudCompra solicitud, List<Ticket> tickets, List<String> codigosQR) {
@@ -203,6 +263,64 @@ public class ServicioEntradas {
         event.setAsientos(tickets.stream().map(Ticket::getNumeroAsiento).collect(Collectors.toList()));
         event.setOccurredAt(LocalDateTime.now());
         return event;
+    }
+
+    private String resolverNombrePelicula(String numeroPelicula, String nombrePelicula) {
+        if (nombrePelicula != null && !nombrePelicula.isBlank()) {
+            return nombrePelicula.trim();
+        }
+
+        return numeroPelicula != null ? "Pelicula " + numeroPelicula.trim() : "Pelicula sin nombre";
+    }
+
+    private String resolverHoraPelicula(String horaPelicula) {
+        return horaPelicula != null && !horaPelicula.isBlank() ? horaPelicula.trim() : "N/A";
+    }
+
+    private String resolverSala(String sala) {
+        return sala != null && !sala.isBlank() ? sala.trim() : "N/A";
+    }
+
+    public Map<String, Object> reclamarCumpleanos(Long idUsuario) {
+        Map<String, Object> respuesta = new HashMap<>();
+        if (idUsuario == null) {
+            respuesta.put("exito", false);
+            respuesta.put("error", "ID de usuario inválido");
+            return respuesta;
+        }
+
+        try {
+            List<String> codigos = new ArrayList<>();
+            List<Long> ids = new ArrayList<>();
+            for (int i = 1; i <= 2; i++) {
+                Ticket ticket = new Ticket();
+                ticket.setNombrePelicula("Bono Cumpleaños");
+                ticket.setHoraPelicula("N/A");
+                ticket.setSala("N/A");
+                ticket.setNumeroPelicula("0");
+                ticket.setClaveFuncion("BIRTHDAY-" + idUsuario + "-" + UUID.randomUUID().toString());
+                ticket.setNumeroAsiento("FREE-" + i);
+                ticket.setPrecio(0.0);
+                ticket.setEstado(EstadoTicket.RESERVADO);
+                ticket.setEmailComprador(null);
+                ticket.setDescuentoAplicado(0.0);
+                ticket.setCodigoQR(generarCodigoQR(ticket));
+                RepositorioTicket repo = this.repositorioTicket;
+                Ticket saved = repo.save(ticket);
+                codigos.add(saved.getCodigoQR());
+                ids.add(saved.getId());
+            }
+
+            respuesta.put("exito", true);
+            respuesta.put("ticketIds", ids);
+            respuesta.put("codigosQR", codigos);
+            respuesta.put("mensaje", "Se han generado 2 tickets de regalo para el usuario");
+            return respuesta;
+        } catch (Exception ex) {
+            respuesta.put("exito", false);
+            respuesta.put("error", ex.getMessage());
+            return respuesta;
+        }
     }
 
     private Long resolverIdFuncion(Long idFuncion, String numeroPelicula) {

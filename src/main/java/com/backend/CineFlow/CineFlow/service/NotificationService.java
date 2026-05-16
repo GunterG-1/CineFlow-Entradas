@@ -2,6 +2,7 @@ package com.backend.CineFlow.CineFlow.service;
 
 import com.backend.CineFlow.CineFlow.dto.NotificationRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
@@ -13,6 +14,12 @@ public class NotificationService {
 
     private final JavaMailSender mailSender;
 
+    @Value("${spring.mail.username:}")
+    private String mailUsername;
+
+    @Value("${app.mail.from:no-reply@cineflow.local}")
+    private String defaultFrom;
+
     public void send(NotificationRequest request) {
         validarRequest(request);
 
@@ -21,9 +28,19 @@ public class NotificationService {
         message.setSubject(request.getSubject());
         message.setText(request.getBody());
 
-        if (mailSender instanceof JavaMailSenderImpl senderImpl && senderImpl.getUsername() != null) {
-            message.setFrom(senderImpl.getUsername());
+        String from = null;
+        if (mailSender instanceof JavaMailSenderImpl senderImpl) {
+            String username = senderImpl.getUsername();
+            if (username != null && !username.isBlank()) {
+                from = username;
+            }
         }
+
+        if (from == null || from.isBlank()) {
+            from = (mailUsername != null && !mailUsername.isBlank()) ? mailUsername : defaultFrom;
+        }
+
+        message.setFrom(from);
 
         mailSender.send(message);
     }

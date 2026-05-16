@@ -5,11 +5,16 @@ import java.util.List;
 public class SolicitudCompra {
     private Long idFuncion;
     private String numeroPelicula;
+    private String claveFuncion;
+    private String nombrePelicula;
+    private String horaPelicula;
+    private String sala;
     private Long idUsuario;
     private List<String> asientosSeleccionados;
     private String emailComprador;
     private String codigoDescuento;
     private String numeroTarjeta;
+    private String metodoPago;
     
     public SolicitudCompra() {
     }
@@ -39,6 +44,38 @@ public class SolicitudCompra {
     
     public void setNumeroPelicula(String numeroPelicula) {
         this.numeroPelicula = numeroPelicula;
+    }
+
+    public String getClaveFuncion() {
+        return claveFuncion;
+    }
+
+    public void setClaveFuncion(String claveFuncion) {
+        this.claveFuncion = claveFuncion;
+    }
+
+    public String getNombrePelicula() {
+        return nombrePelicula;
+    }
+
+    public void setNombrePelicula(String nombrePelicula) {
+        this.nombrePelicula = nombrePelicula;
+    }
+
+    public String getHoraPelicula() {
+        return horaPelicula;
+    }
+
+    public void setHoraPelicula(String horaPelicula) {
+        this.horaPelicula = horaPelicula;
+    }
+
+    public String getSala() {
+        return sala;
+    }
+
+    public void setSala(String sala) {
+        this.sala = sala;
     }
 
     public Long getIdUsuario() {
@@ -79,5 +116,13 @@ public class SolicitudCompra {
     
     public void setNumeroTarjeta(String numeroTarjeta) {
         this.numeroTarjeta = numeroTarjeta;
+    }
+
+    public String getMetodoPago() {
+        return metodoPago;
+    }
+
+    public void setMetodoPago(String metodoPago) {
+        this.metodoPago = metodoPago;
     }
 }

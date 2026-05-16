@@ -1,5 +1,4 @@
 package com.backend.CineFlow.CineFlow.model;
-
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.Data;
@@ -18,6 +17,18 @@ public class Ticket {
     
     @Column(nullable = false)
     private String numeroPelicula;
+
+    @Column(nullable = false)
+    private String claveFuncion;
+
+    @Column(nullable = false)
+    private String nombrePelicula;
+
+    @Column(nullable = false)
+    private String horaPelicula;
+
+    @Column(nullable = false)
+    private String sala;
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -25,12 +36,6 @@ public class Ticket {
     
     @Column(nullable = false)
     private Double precio;
-    
-    @Column(nullable = true)
-    private LocalDateTime fechaBloqueo;
-    
-    @Column(nullable = false)
-    private LocalDateTime fechaCreacion;
     
     private LocalDateTime fechaCompra;
     
@@ -44,7 +49,12 @@ public class Ticket {
     private Double descuentoAplicado;
     
     public Ticket() {
-        this.fechaCreacion = LocalDateTime.now();
         this.estado = EstadoTicket.DISPONIBLE;
     }
+
+    public void setClaveFuncion(String claveFuncion) {
+        this.claveFuncion = claveFuncion;
+    }
+
 }
+

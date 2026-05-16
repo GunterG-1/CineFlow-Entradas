@@ -8,7 +8,6 @@ import org.springframework.stereotype.Repository;
 import com.backend.CineFlow.CineFlow.model.EstadoTicket;
 import com.backend.CineFlow.CineFlow.model.Ticket;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,13 +17,16 @@ public interface RepositorioTicket extends JpaRepository<Ticket, Long> {
     List<Ticket> findByNumeroPeliculaAndEstado(String numeroPelicula, EstadoTicket estado);
     
     Optional<Ticket> findByCodigoQR(String codigoQR);
+
+    List<Ticket> findByClaveFuncionAndEstadoIn(String claveFuncion, List<EstadoTicket> estados);
     
     @Query("SELECT t FROM Ticket t WHERE t.numeroPelicula = :numeroPelicula AND t.numeroAsiento = :numeroAsiento")
     Optional<Ticket> buscarPorPeliculaYAsiento(@Param("numeroPelicula") String numeroPelicula, 
                                                @Param("numeroAsiento") String numeroAsiento);
+
+    @Query("SELECT t FROM Ticket t WHERE t.claveFuncion = :claveFuncion AND t.numeroAsiento = :numeroAsiento")
+    Optional<Ticket> buscarPorFuncionYAsiento(@Param("claveFuncion") String claveFuncion,
+                                              @Param("numeroAsiento") String numeroAsiento);
     
-    @Query("SELECT t FROM Ticket t WHERE t.estado = 'BLOQUEADO' AND t.fechaBloqueo < :tiempoLimite")
-    List<Ticket> obtenerBloqueosCaducados(@Param("tiempoLimite") LocalDateTime tiempoLimite);
-    
-    List<Ticket> findByEmailCompradorAndFechaCompraBetween(String email, LocalDateTime inicio, LocalDateTime fin);
+    List<Ticket> findByEmailCompradorAndFechaCompraBetween(String email, java.time.LocalDateTime inicio, java.time.LocalDateTime fin);
 }
